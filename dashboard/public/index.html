@@ -1,64 +1,301 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Aether Music</title>
-  <link rel="stylesheet" href="/style.css">
-</head>
-<body>
-  <header>
-    <div class="brand">AETHER</div>
-    <div id="user"></div>
-  </header>
 
-  <main>
-    <section id="login" class="panel">
-      <h1>Aether Music</h1>
-      <p>Discord music control powered by Lavalink.</p>
-      <a class="button" href="/auth/discord">Login with Discord</a>
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  >
+
+  <title>Aether V4</title>
+
+  <link
+    rel="stylesheet"
+    href="/style.css"
+  >
+</head>
+
+<body>
+
+  <div id="app">
+
+    <!-- LOGIN -->
+    <section id="loginScreen" class="screen">
+      <div class="login-card">
+
+        <div class="logo">A</div>
+
+        <h1>Aether V4</h1>
+
+        <p>
+          Your Discord music control center.
+        </p>
+
+        <a
+          href="/auth/discord"
+          class="login-button"
+        >
+          Login with Discord
+        </a>
+
+      </div>
     </section>
 
-    <section id="app" hidden>
-      <div class="toolbar">
-        <select id="guild"></select>
-        <a href="/logout">Logout</a>
-      </div>
 
-      <div class="player panel">
-        <img id="art" alt="">
-        <div class="meta">
-          <div class="eyebrow">NOW PLAYING</div>
-          <h1 id="title">Nothing playing</h1>
-          <p id="author">—</p>
-          <div class="progress"><div id="bar"></div></div>
-          <div class="controls">
-            <button data-action="shuffle">Shuffle</button>
-            <button data-action="previous">Prev</button>
-            <button data-action="pause">Pause</button>
-            <button data-action="resume">Resume</button>
-            <button data-action="skip">Skip</button>
-            <button data-action="stop">Stop</button>
-          </div>
-          <div class="settings">
-            <label>Volume <input id="volume" type="range" min="0" max="150" value="80"></label>
-            <select id="loop">
-              <option value="off">Loop off</option>
-              <option value="track">Loop track</option>
-              <option value="queue">Loop queue</option>
-            </select>
+    <!-- DASHBOARD -->
+    <section
+      id="dashboardScreen"
+      class="dashboard hidden"
+    >
+
+      <header class="topbar">
+
+        <div class="brand">
+          <div class="brand-logo">A</div>
+
+          <div>
+            <strong>Aether</strong>
+            <span>V4 Dashboard</span>
           </div>
         </div>
-      </div>
 
-      <div class="panel">
-        <div class="section-title">QUEUE</div>
-        <div id="queue" class="queue"></div>
-      </div>
+        <div class="user-area">
+
+          <div class="user-info">
+            <span id="username">
+              Loading...
+            </span>
+
+            <small id="status">
+              Connecting...
+            </small>
+          </div>
+
+          <a
+            href="/logout"
+            class="logout"
+          >
+            Logout
+          </a>
+
+        </div>
+
+      </header>
+
+
+      <main class="content">
+
+        <!-- SERVER SELECTOR -->
+        <section class="server-section">
+
+          <div>
+            <h2>Your Servers</h2>
+
+            <p>
+              Select a server to control Aether.
+            </p>
+          </div>
+
+          <select id="guildSelect">
+            <option value="">
+              Select a server
+            </option>
+          </select>
+
+        </section>
+
+
+        <!-- PLAYER -->
+        <section class="player-card">
+
+          <div class="artwork-container">
+
+            <img
+              id="artwork"
+              src=""
+              alt="Album artwork"
+            >
+
+            <div
+              id="noArtwork"
+              class="no-artwork"
+            >
+              ♪
+            </div>
+
+          </div>
+
+
+          <div class="player-info">
+
+            <span class="playing-label">
+              NOW PLAYING
+            </span>
+
+            <h1 id="trackTitle">
+              Nothing playing
+            </h1>
+
+            <p id="trackAuthor">
+              Choose a server and start playing music.
+            </p>
+
+
+            <!-- PROGRESS -->
+            <div class="progress-area">
+
+              <span id="currentTime">
+                0:00
+              </span>
+
+              <div class="progress-bar">
+                <div
+                  id="progress"
+                  class="progress"
+                ></div>
+              </div>
+
+              <span id="duration">
+                0:00
+              </span>
+
+            </div>
+
+
+            <!-- CONTROLS -->
+            <div class="controls">
+
+              <button
+                id="shuffleButton"
+                title="Shuffle"
+              >
+                🔀
+              </button>
+
+              <button
+                id="skipBackButton"
+                title="Previous"
+              >
+                ⏮
+              </button>
+
+              <button
+                id="playButton"
+                class="play-button"
+                title="Play / Pause"
+              >
+                ▶
+              </button>
+
+              <button
+                id="skipButton"
+                title="Skip"
+              >
+                ⏭
+              </button>
+
+              <button
+                id="stopButton"
+                title="Stop"
+              >
+                ⏹
+              </button>
+
+            </div>
+
+
+            <!-- VOLUME -->
+            <div class="volume-row">
+
+              <span>🔊</span>
+
+              <input
+                id="volumeSlider"
+                type="range"
+                min="0"
+                max="100"
+                value="100"
+              >
+
+              <span id="volumeValue">
+                100%
+              </span>
+
+            </div>
+
+
+            <!-- LOOP -->
+            <div class="loop-row">
+
+              <button
+                id="loopOff"
+                class="loop active"
+              >
+                Loop Off
+              </button>
+
+              <button
+                id="loopTrack"
+                class="loop"
+              >
+                Loop Track
+              </button>
+
+              <button
+                id="loopQueue"
+                class="loop"
+              >
+                Loop Queue
+              </button>
+
+            </div>
+
+          </div>
+
+        </section>
+
+
+        <!-- QUEUE -->
+        <section class="queue-card">
+
+          <div class="section-header">
+
+            <div>
+              <h2>Queue</h2>
+
+              <p id="queueCount">
+                0 tracks
+              </p>
+            </div>
+
+            <button
+              id="refreshQueue"
+              class="small-button"
+            >
+              Refresh
+            </button>
+
+          </div>
+
+          <div id="queue">
+            <div class="empty-queue">
+              Queue is empty.
+            </div>
+          </div>
+
+        </section>
+
+      </main>
+
     </section>
-  </main>
+
+  </div>
+
 
   <script src="/socket.io/socket.io.js"></script>
+
   <script src="/app.js"></script>
+
 </body>
 </html>
