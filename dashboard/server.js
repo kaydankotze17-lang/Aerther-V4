@@ -10,30 +10,44 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export function startDashboard(client, music, port) {
   const app = express();
+
+  // Render runs behind a proxy.
+  // This allows secure session cookies to work correctly.
+  app.set("trust proxy", 1);
+
   const httpServer = createServer(app);
   const io = new Server(httpServer);
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
-  app.use(session({
-    secret: config.sessionSecret,
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: true,
-      maxAge: 86400000
-    }
-  }));
+  app.use(
+    session({
+      secret: config.sessionSecret,
+      resave: false,
+      saveUninitialized: false,
+      cookie: {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: true,
+        maxAge: 86400000
+      }
+    })
+  );
 
   function requireAuth(req, res, next) {
     if (!req.session.user) {
-      return res.status(401).json({ error: "Not authenticated" });
+      return res.status(401).json({
+        error: "Not authenticated"
+      });
     }
+
     next();
   }
+
+  // =========================
+  // DISCORD LOGIN
+  // =========================
 
   app.get("/auth/discord", (req, res) => {
     const params = new URLSearchParams({
@@ -43,16 +57,28 @@ export function startDashboard(client, music, port) {
       scope: "identify guilds"
     });
 
-    res.redirect(`https://discord.com/oauth2/authorize?${params}`);
+    res.redirect(
+      `https://discord.com/oauth2/authorize?${params.toString()}`
+    );
   });
+
+  // =========================
+  // DISCORD CALLBACK
+  // =========================
 
   app.get("/auth/discord/callback", async (req, res) => {
     try {
+      const code = req.query.code;
+
+      if (!code) {
+        return res.status(400).send("Missing Discord authorization code.");
+      }
+
       const body = new URLSearchParams({
         client_id: config.clientId,
         client_secret: config.clientSecret,
         grant_type: "authorization_code",
-        code: req.query.code,
+        code,
         redirect_uri: config.redirectUri
       });
 
@@ -63,15 +89,23 @@ export function startDashboard(client, music, port) {
           headers: {
             "Content-Type": "application/x-www-form-urlencoded"
           },
-          body
+          body: body.toString()
         }
       );
 
       const token = await tokenResponse.json();
 
       if (!token.access_token) {
-        throw new Error("OAuth token exchange failed.");
+        console.error("[dashboard] Discord token error:", token);
+
+        return res
+          .status(500)
+          .send("Discord login failed: token exchange failed.");
       }
+
+      // =========================
+      // GET DISCORD USER
+      // =========================
 
       const userResponse = await fetch(
         "https://discord.com/api/users/@me",
@@ -82,7 +116,15 @@ export function startDashboard(client, music, port) {
         }
       );
 
+      if (!userResponse.ok) {
+        throw new Error("Could not fetch Discord user.");
+      }
+
       const user = await userResponse.json();
+
+      // =========================
+      // GET USER GUILDS
+      // =========================
 
       const guildResponse = await fetch(
         "https://discord.com/api/users/@me/guilds",
@@ -93,28 +135,72 @@ export function startDashboard(client, music, port) {
         }
       );
 
+      if (!guildResponse.ok) {
+        throw new Error("Could not fetch Discord servers.");
+      }
+
       const guilds = await guildResponse.json();
 
+      // =========================
+      // SAVE SESSION
+      // =========================
+
       req.session.user = {
-        ...user,
+        id: user.id,
+        username: user.username,
+        global_name: user.global_name,
+        avatar: user.avatar,
+        discriminator: user.discriminator,
         guilds
       };
 
-      res.redirect("/");
+      req.session.save(error => {
+        if (error) {
+          console.error("[dashboard] Session save error:", error);
+          return res.status(500).send("Could not save login session.");
+        }
+
+        console.log(
+          `[dashboard] Logged in: ${user.username}`
+        );
+
+        res.redirect("/");
+      });
     } catch (error) {
       console.error("[dashboard] OAuth error:", error);
+
       res.status(500).send("Discord login failed.");
     }
   });
 
+  // =========================
+  // CURRENT USER
+  // =========================
+
   app.get("/api/me", requireAuth, (req, res) => {
+    const sessionGuilds = Array.isArray(req.session.user.guilds)
+      ? req.session.user.guilds
+      : [];
+
+    const guilds = sessionGuilds.filter(guild =>
+      client.guilds.cache.has(guild.id)
+    );
+
     res.json({
-      user: req.session.user,
-      guilds: req.session.user.guilds.filter(guild =>
-        client.guilds.cache.has(guild.id)
-      )
+      user: {
+        id: req.session.user.id,
+        username: req.session.user.username,
+        global_name: req.session.user.global_name,
+        avatar: req.session.user.avatar,
+        discriminator: req.session.user.discriminator
+      },
+      guilds
     });
   });
+
+  // =========================
+  // SERVER INFO
+  // =========================
 
   app.get("/api/guilds/:guildId", requireAuth, (req, res) => {
     const guild = client.guilds.cache.get(req.params.guildId);
@@ -128,80 +214,216 @@ export function startDashboard(client, music, port) {
     res.json({
       id: guild.id,
       name: guild.name,
-      icon: guild.iconURL({ size: 128 })
+      icon: guild.iconURL({
+        size: 128
+      })
     });
   });
 
+  // =========================
+  // PLAYER STATE
+  // =========================
+
   app.get("/api/player/:guildId", requireAuth, (req, res) => {
     try {
-      res.json(music.get(req.params.guildId).state());
+      const player = music.get(req.params.guildId);
+
+      res.json(player.state());
     } catch {
       res.json({
         guildId: req.params.guildId,
         connected: false,
         current: null,
-        queue: []
+        queue: [],
+        volume: 100,
+        loop: "off"
       });
     }
   });
 
-  app.post("/api/player/:guildId/action", requireAuth, async (req, res) => {
-    const player = music.get(req.params.guildId);
-    const action = req.body.action;
+  // =========================
+  // PLAYER ACTIONS
+  // =========================
 
-    try {
-      if (action === "pause") {
-        await player.pause();
-      } else if (action === "resume") {
-        await player.resume();
-      } else if (action === "skip") {
-        await player.skip();
-      } else if (action === "stop") {
-        await player.stop();
-      } else if (action === "shuffle") {
-        for (let i = player.queue.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [player.queue[i], player.queue[j]] =
-            [player.queue[j], player.queue[i]];
+  app.post(
+    "/api/player/:guildId/action",
+    requireAuth,
+    async (req, res) => {
+      const guildId = req.params.guildId;
+      const action = req.body?.action;
+
+      const player = music.get(guildId);
+
+      try {
+        if (action === "pause") {
+          await player.pause();
         }
-      } else if (action === "volume") {
-        await player.setVolume(req.body.value);
-      } else if (action === "loop") {
-        player.loop = req.body.value;
-      } else {
-        return res.status(400).json({
-          error: "Unknown action."
+
+        else if (action === "resume") {
+          await player.resume();
+        }
+
+        else if (action === "skip") {
+          await player.skip();
+        }
+
+        else if (action === "stop") {
+          await player.stop();
+        }
+
+        else if (action === "shuffle") {
+          for (
+            let i = player.queue.length - 1;
+            i > 0;
+            i--
+          ) {
+            const j = Math.floor(
+              Math.random() * (i + 1)
+            );
+
+            [
+              player.queue[i],
+              player.queue[j]
+            ] = [
+              player.queue[j],
+              player.queue[i]
+            ];
+          }
+        }
+
+        else if (action === "volume") {
+          const value = Number(req.body.value);
+
+          if (
+            !Number.isFinite(value) ||
+            value < 0 ||
+            value > 100
+          ) {
+            return res.status(400).json({
+              error: "Volume must be between 0 and 100."
+            });
+          }
+
+          await player.setVolume(value);
+        }
+
+        else if (action === "loop") {
+          const value = req.body.value;
+
+          if (
+            value !== "off" &&
+            value !== "track" &&
+            value !== "queue"
+          ) {
+            return res.status(400).json({
+              error: "Invalid loop mode."
+            });
+          }
+
+          player.loop = value;
+        }
+
+        else {
+          return res.status(400).json({
+            error: "Unknown action."
+          });
+        }
+
+        const state = player.state();
+
+        io.to(guildId).emit(
+          "player:update",
+          state
+        );
+
+        res.json(state);
+      } catch (error) {
+        console.error(
+          `[dashboard] Player action error:`,
+          error
+        );
+
+        res.status(500).json({
+          error:
+            error?.message ||
+            "Player action failed."
         });
       }
-
-      io.to(req.params.guildId).emit(
-        "player:update",
-        player.state()
-      );
-
-      res.json(player.state());
-    } catch (error) {
-      res.status(500).json({
-        error: error.message
-      });
     }
-  });
+  );
+
+  // =========================
+  // LOGOUT
+  // =========================
 
   app.get("/logout", (req, res) => {
-    req.session.destroy(() => {
+    req.session.destroy(error => {
+      if (error) {
+        console.error(
+          "[dashboard] Logout error:",
+          error
+        );
+      }
+
+      res.clearCookie("connect.sid");
+
       res.redirect("/");
     });
   });
 
-  app.use(express.static(path.join(__dirname, "public")));
+  // =========================
+  // STATIC DASHBOARD
+  // =========================
+
+  app.use(
+    express.static(
+      path.join(__dirname, "public")
+    )
+  );
+
+  // =========================
+  // SOCKET.IO
+  // =========================
 
   io.on("connection", socket => {
+    console.log(
+      `[dashboard] Socket connected: ${socket.id}`
+    );
+
     socket.on("guild:watch", guildId => {
+      if (!guildId) return;
+
       socket.join(guildId);
+
+      console.log(
+        `[dashboard] Socket ${socket.id} watching guild ${guildId}`
+      );
+    });
+
+    socket.on("disconnect", () => {
+      console.log(
+        `[dashboard] Socket disconnected: ${socket.id}`
+      );
     });
   });
 
-  httpServer.listen(port, "0.0.0.0", () => {
-    console.log(`[dashboard] Listening on port ${port}`);
-  });
+  // =========================
+  // START SERVER
+  // =========================
+
+  httpServer.listen(
+    port,
+    "0.0.0.0",
+    () => {
+      console.log(
+        `[dashboard] Listening on port ${port}`
+      );
+    }
+  );
+
+  return {
+    app,
+    httpServer,
+    io
+  };
 }
