@@ -48,9 +48,25 @@ async function resolveAndPlay(player, query) {
     );
   }
 
-  console.log(`[music] Resolving query: ${query}`);
-  const result = await node.rest.resolve(query);
-  console.log(`[music] Resolve result: ${result?.loadType}`);
+  /*
+   * Normal text = YouTube search
+   * URL = load directly
+   */
+  const searchQuery =
+    /^https?:\/\//i.test(query)
+      ? query
+      : `ytsearch:${query}`;
+
+  console.log(
+    `[music] Resolving query: ${searchQuery}`
+  );
+
+  const result =
+    await node.rest.resolve(searchQuery);
+
+  console.log(
+    `[music] Resolve result: ${result?.loadType}`
+  );
 
   if (!result?.data) {
     throw new Error(
@@ -70,17 +86,23 @@ async function resolveAndPlay(player, query) {
         : result.data;
   }
 
-  else if (result.loadType === "playlist") {
+  else if (
+    result.loadType === "playlist"
+  ) {
     tracks = result.data.tracks;
   }
 
-  else if (result.loadType === "empty") {
+  else if (
+    result.loadType === "empty"
+  ) {
     throw new Error(
       "Nothing was found."
     );
   }
 
-  else if (result.loadType === "error") {
+  else if (
+    result.loadType === "error"
+  ) {
     throw new Error(
       result.data?.message ||
       "Lavalink could not load that query."
@@ -95,7 +117,8 @@ async function resolveAndPlay(player, query) {
 
   const selected = tracks[0];
 
-  const added = textTrack(selected);
+  const added =
+    textTrack(selected);
 
   const wasPlaying =
     Boolean(player.current);
@@ -103,9 +126,15 @@ async function resolveAndPlay(player, query) {
   player.enqueue(added);
 
   if (!wasPlaying) {
-    console.log("[music] Starting playback...");
+    console.log(
+      "[music] Starting playback..."
+    );
+
     await player.playNext();
-    console.log("[music] Playback started.");
+
+    console.log(
+      "[music] Playback started."
+    );
   }
 
   return {
@@ -203,13 +232,17 @@ client.on(
           });
         }
 
+        /*
+         * Defer before connecting/resolving
+         * so Discord does not time out.
+         */
+        await interaction.deferReply();
+
         if (!player.player) {
           await player.connect(
             channel.id
           );
         }
-
-        await interaction.deferReply();
 
         const result =
           await resolveAndPlay(
