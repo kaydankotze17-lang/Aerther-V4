@@ -4,9 +4,21 @@ import {
   Events,
   EmbedBuilder
 } from "discord.js";
+import { createServer } from "node:http";
 import { config } from "./config.js";
 import { createLavalink } from "./lavalink.js";
 import { MusicManager } from "./musicManager.js";
+
+const PORT = Number(process.env.PORT || 3000);
+
+const healthServer = createServer((req, res) => {
+  res.writeHead(200, { "Content-Type": "text/plain" });
+  res.end("Aether V4 is online.");
+});
+
+healthServer.listen(PORT, "0.0.0.0", () => {
+  console.log(`[web] Health server listening on port ${PORT}`);
+});
 
 const client = new Client({
   intents: [
@@ -158,3 +170,4 @@ client.on(Events.InteractionCreate, async (interaction) => {
 await client.login(config.token);
 
 export { client, music };
+
