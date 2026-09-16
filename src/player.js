@@ -8,7 +8,6 @@ export class Player extends EventEmitter {
     this.guildId = guildId;
 
     this.player = null;
-
     this.queue = [];
     this.current = null;
 
@@ -20,20 +19,42 @@ export class Player extends EventEmitter {
   }
 
   async connect(channelId) {
-    const node = this.lavalink.getIdealNode();
+    if (this.player) return this.player;
 
-    if (!node) {
-      throw new Error("No Lavalink node is available.");
-    }
-
-    this.player = await node.joinChannel({
+    this.player = await this.lavalink.joinVoiceChannel({
       guildId: this.guildId,
       channelId,
-      deaf: true
+      shardId: 0
     });
 
     this.position = 0;
     this.paused = false;
+
+    this.player.on("start", () => {
+      this.paused = false;
+      this.emitUpdate();
+    });
+
+    this.player.on("end", async () => {
+      try {
+        if (this.loop === "track" && this.current) {
+          await this.playNext();
+          return;
+        }
+
+        await this.playNext();
+      } catch (error) {
+        console.error(`[music] Track end error:`, error);
+      }
+    });
+
+    this.player.on("exception", (error) => {
+      console.error(`[music] Lavalink exception:`, error);
+    });
+
+    this.player.on("stuck", (data) => {
+      console.warn(`[music] Track stuck:`, data);
+    });
 
     return this.player;
   }
@@ -47,7 +68,7 @@ export class Player extends EventEmitter {
       throw new Error("Player is not connected.");
     }
 
-    let next = null;
+    let next;
 
     if (this.loop === "track" && this.current) {
       next = this.current;
@@ -59,9 +80,7 @@ export class Player extends EventEmitter {
       this.current = null;
       this.position = 0;
       this.paused = false;
-
       this.emitUpdate();
-
       return;
     }
 
@@ -86,9 +105,7 @@ export class Player extends EventEmitter {
     }
 
     await this.player.setPaused(true);
-
     this.paused = true;
-
     this.emitUpdate();
   }
 
@@ -98,9 +115,7 @@ export class Player extends EventEmitter {
     }
 
     await this.player.setPaused(false);
-
     this.paused = false;
-
     this.emitUpdate();
   }
 
@@ -112,8 +127,7 @@ export class Player extends EventEmitter {
     await this.player.stopTrack();
 
     if (this.loop === "track") {
-      await this.playNext();
-      return;
+      this.loop = "off";
     }
 
     await this.playNext();
@@ -126,7 +140,6 @@ export class Player extends EventEmitter {
 
     this.queue = [];
     this.current = null;
-
     this.position = 0;
     this.paused = false;
 
@@ -150,14 +163,12 @@ export class Player extends EventEmitter {
 
   async disconnect() {
     if (this.player) {
-      await this.player.disconnect();
+      await this.lavalink.leaveVoiceChannel(this.guildId);
     }
 
     this.player = null;
-
     this.queue = [];
     this.current = null;
-
     this.position = 0;
     this.paused = false;
 
@@ -165,69 +176,40 @@ export class Player extends EventEmitter {
   }
 
   state() {
+    if (this.player) {
+      this.position = Number(this.player.position || 0);
+      this.paused = Boolean(this.player.paused);
+    }
+
     return {
       guildId: this.guildId,
-
       connected: Boolean(this.player),
 
       current: this.current
         ? {
-            title:
-              this.current.info?.title ||
-              "Unknown",
-
-            author:
-              this.current.info?.author ||
-              "Unknown",
-
-            uri:
-              this.current.info?.uri ||
-              null,
-
-            artworkUrl:
-              this.current.info?.artworkUrl ||
-              null,
-
-            length:
-              Number(
-                this.current.info?.length ||
-                0
-              )
+            title: this.current.info?.title || "Unknown",
+            author: this.current.info?.author || "Unknown",
+            uri: this.current.info?.uri || null,
+            artworkUrl: this.current.info?.artworkUrl || null,
+            length: Number(this.current.info?.length || 0)
           }
         : null,
 
       queue: this.queue.map(track => ({
-        title:
-          track.info?.title ||
-          "Unknown",
-
-        author:
-          track.info?.author ||
-          "Unknown",
-
-        uri:
-          track.info?.uri ||
-          null,
-
-        artworkUrl:
-          track.info?.artworkUrl ||
-          null
+        title: track.info?.title || "Unknown",
+        author: track.info?.author || "Unknown",
+        uri: track.info?.uri || null,
+        artworkUrl: track.info?.artworkUrl || null
       })),
 
       volume: this.volume,
-
       loop: this.loop,
-
       position: this.position,
-
       paused: this.paused
     };
   }
 
   emitUpdate() {
-    this.emit(
-      "update",
-      this.state()
-    );
+    this.emit("update", this.state());
   }
 }
