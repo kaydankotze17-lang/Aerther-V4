@@ -2,8 +2,12 @@ server:
   port: 2333
 
 lavalink:
+  plugins:
+    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.2"
+
   server:
     password: "youshallnotpass"
+
     sources:
       youtube: false
       bandcamp: true
@@ -12,6 +16,7 @@ lavalink:
       vimeo: true
       http: true
       local: false
+
     filters:
       volume: true
       equalizer: true
