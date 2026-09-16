@@ -48,7 +48,9 @@ async function resolveAndPlay(player, query) {
     );
   }
 
+  console.log(`[music] Resolving query: ${query}`);
   const result = await node.rest.resolve(query);
+  console.log(`[music] Resolve result: ${result?.loadType}`);
 
   if (!result?.data) {
     throw new Error(
@@ -101,7 +103,9 @@ async function resolveAndPlay(player, query) {
   player.enqueue(added);
 
   if (!wasPlaying) {
+    console.log("[music] Starting playback...");
     await player.playNext();
+    console.log("[music] Playback started.");
   }
 
   return {
