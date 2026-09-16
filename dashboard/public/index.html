@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Aether Music</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <div class="brand">AETHER</div>
+    <div id="user"></div>
+  </header>
+
+  <main>
+    <section id="login" class="panel">
+      <h1>Aether Music</h1>
+      <p>Discord music control powered by Lavalink.</p>
+      <a class="button" href="/auth/discord">Login with Discord</a>
+    </section>
+
+    <section id="app" hidden>
+      <div class="toolbar">
+        <select id="guild"></select>
+        <a href="/logout">Logout</a>
+      </div>
+
+      <div class="player panel">
+        <img id="art" alt="">
+        <div class="meta">
+          <div class="eyebrow">NOW PLAYING</div>
+          <h1 id="title">Nothing playing</h1>
+          <p id="author">—</p>
+          <div class="progress"><div id="bar"></div></div>
+          <div class="controls">
+            <button data-action="shuffle">Shuffle</button>
+            <button data-action="previous">Prev</button>
+            <button data-action="pause">Pause</button>
+            <button data-action="resume">Resume</button>
+            <button data-action="skip">Skip</button>
+            <button data-action="stop">Stop</button>
+          </div>
+          <div class="settings">
+            <label>Volume <input id="volume" type="range" min="0" max="150" value="80"></label>
+            <select id="loop">
+              <option value="off">Loop off</option>
+              <option value="track">Loop track</option>
+              <option value="queue">Loop queue</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="section-title">QUEUE</div>
+        <div id="queue" class="queue"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

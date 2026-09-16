@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Snake Game</title>
+    <style>
+        body {
+            background-color: #222;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        canvas {
+            border: 2px solid #555;
+            background-color: #000;
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.2);
+        }
+        h1 {
+            margin-bottom: 10px;
+        }
+        #scoreBoard {
+            margin-top: 10px;
+            font-size: 20px;
+        }
+        .controls {
+            margin-top: 15px;
+            font-size: 14px;
+            color: #aaa;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>SNAKE</h1>
+    <canvas id="gameCanvas" width="400" height="400"></canvas>
+    <div id="scoreBoard">Score: 0</div>
+    <div class="controls">Use Arrow Keys to move. Press Space to Restart if Game Over.</div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreElement = document.getElementById('scoreBoard');
+
+        // Game settings
+        const gridSize = 20; // Size of one square
+        const tileCount = canvas.width / gridSize; // 20x20 grid
+        
+        let score = 0;
+        let velocityX = 0;
+        let velocityY = 0;
+        let snake = [];
+        let food = { x: 15, y: 15 };
+        
+        // Start position
+        let headX = 10;
+        let headY = 10;
+        let tailLength = 2;
+
+        // Game loop speed
+        let gameSpeed = 100; // milliseconds
+        let gameRunning = true;
+
+        // Initialize
+        snake = [{x: headX, y: headY}, {x: headX, y: headY + 1}];
+
+        function startGame() {
+            document.addEventListener('keydown', keyPush);
+            setInterval(gameLoop, gameSpeed);
+        }
+
+        function gameLoop() {
+            if (!gameRunning) return;
+
+            // Move Snake
+            headX += velocityX;
+            headY += velocityY;
+
+            // Wall Collision (Wrap around logic)
+            if (headX < 0) headX = tileCount - 1;
+            if (headX >= tileCount) headX = 0;
+            if (headY < 0) headY = tileCount - 1;
+            if (headY >= tileCount) headY = 0;
+
+            // Check Collision with Self
+            for (let i = 0; i < snake.length; i++) {
+                if (snake[i].x === headX && snake[i].y === headY && tailLength > 2) {
+                    gameOver();
+                    return;
+                }
+            }
+
+            // Draw Background
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw Snake
+            ctx.fillStyle = 'lime';
+            for (let i = 0; i < snake.length; i++) {
+                ctx.fillRect(snake[i].x * gridSize, snake[i].y * gridSize, gridSize - 2, gridSize - 2);
+            }
+
+            // Update Snake Position
+            snake.push({ x: headX, y: headY });
+            while (snake.length > tailLength) {
+                snake.shift();
+            }
+
+            // Check Food Collision
+            if (headX === food.x && headY === food.y) {
+                tailLength++;
+                score += 10;
+                scoreElement.innerText = "Score: " + score;
+                placeFood();
+            }
+
+            // Draw Food
+            ctx.fillStyle = 'red';
+            ctx.fillRect(food.x * gridSize, food.y * gridSize, gridSize - 2, gridSize - 2);
+        }
+
+        function placeFood() {
+            food.x = Math.floor(Math.random() * tileCount);
+            food.y = Math.floor(Math.random() * tileCount);
+            
+            // Ensure food doesn't spawn on snake body
+            for(let part of snake) {
+                if(part.x === food.x && part.y === food.y) {
+                    placeFood();
+                }
+            }
+        }
+
+        function gameOver() {
+            gameRunning = false;
+            ctx.fillStyle = "white";
+            ctx.font = "40px Courier New";
+            ctx.textAlign = "center";
+            ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2);
+            ctx.font = "20px Courier New";
+            ctx.fillText("Press Space to Restart", canvas.width / 2, canvas.height / 2 + 40);
+        }
+
+        function keyPush(evt) {
+            if (!gameRunning && evt.key === " ") {
+                // Restart Game
+                headX = 10;
+                headY = 10;
+                snake = [{x: headX, y: headY}, {x: headX, y: headY + 1}];
+                tailLength = 2;
+                score = 0;
+                scoreElement.innerText = "Score: 0";
+                velocityX = 0;
+                velocityY = 0;
+                gameRunning = true;
+                placeFood();
+                return;
+            }
+
+            switch(evt.key) {
+                case "ArrowLeft":
+                    if (velocityX !== 1) { velocityX = -1; velocityY = 0; }
+                    break;
+                case "ArrowUp":
+                    if (velocityY !== 1) { velocityX = 0; velocityY = -1; }
+                    break;
+                case "ArrowRight":
+                    if (velocityX !== -1) { velocityX = 1; velocityY = 0; }
+                    break;
+                case "ArrowDown":
+                    if (velocityY !== -1) { velocityX = 0; velocityY = 1; }
+                    break;
+            }
+        }
+
+        startGame();
+    </script>
+</body>
+</html>
