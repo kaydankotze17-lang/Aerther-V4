@@ -1,23 +1,44 @@
-import { MusicPlayer } from "./player.js";
+import { Player } from "./player.js";
 
 export class MusicManager {
-  constructor(shoukaku) {
-    this.shoukaku = shoukaku;
+  constructor(lavalink) {
+    this.lavalink = lavalink;
     this.players = new Map();
   }
 
   get(guildId) {
     if (!this.players.has(guildId)) {
-      this.players.set(guildId, new MusicPlayer(this.shoukaku, guildId));
+      const player = new Player(
+        this.lavalink,
+        guildId
+      );
+
+      this.players.set(guildId, player);
     }
+
     return this.players.get(guildId);
   }
 
   remove(guildId) {
+    const player = this.players.get(guildId);
+
+    if (player) {
+      player.disconnect().catch(error => {
+        console.error(
+          `[music] Failed to disconnect ${guildId}:`,
+          error
+        );
+      });
+    }
+
     this.players.delete(guildId);
   }
 
-  states() {
-    return [...this.players.values()].map((p) => p.state());
+  has(guildId) {
+    return this.players.has(guildId);
+  }
+
+  all() {
+    return [...this.players.values()];
   }
 }

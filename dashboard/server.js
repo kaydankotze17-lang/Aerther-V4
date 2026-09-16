@@ -6,34 +6,53 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "../src/config.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __dirname = path.dirname(
+  fileURLToPath(import.meta.url)
+);
 
 export function startDashboard(client, music, port) {
   const app = express();
 
-  // Render runs behind a proxy.
-  // This allows secure session cookies to work correctly.
+  // Render reverse proxy support
   app.set("trust proxy", 1);
 
   const httpServer = createServer(app);
-  const io = new Server(httpServer);
+
+  const io = new Server(httpServer, {
+    cors: {
+      origin: true,
+      credentials: true
+    }
+  });
 
   app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
+  app.use(
+    express.urlencoded({
+      extended: true
+    })
+  );
 
   app.use(
     session({
       secret: config.sessionSecret,
+
       resave: false,
+
       saveUninitialized: false,
+
       cookie: {
         httpOnly: true,
         sameSite: "lax",
         secure: true,
-        maxAge: 86400000
+        maxAge: 24 * 60 * 60 * 1000
       }
     })
   );
+
+
+  /* =========================
+     AUTH
+  ========================= */
 
   function requireAuth(req, res, next) {
     if (!req.session.user) {
@@ -45,216 +64,362 @@ export function startDashboard(client, music, port) {
     next();
   }
 
-  // =========================
-  // DISCORD LOGIN
-  // =========================
 
-  app.get("/auth/discord", (req, res) => {
-    const params = new URLSearchParams({
-      client_id: config.clientId,
-      redirect_uri: config.redirectUri,
-      response_type: "code",
-      scope: "identify guilds"
-    });
+  /* =========================
+     DISCORD LOGIN
+  ========================= */
 
-    res.redirect(
-      `https://discord.com/oauth2/authorize?${params.toString()}`
-    );
-  });
+  app.get(
+    "/auth/discord",
+    (req, res) => {
+      const params =
+        new URLSearchParams({
+          client_id:
+            config.clientId,
 
-  // =========================
-  // DISCORD CALLBACK
-  // =========================
+          redirect_uri:
+            config.redirectUri,
 
-  app.get("/auth/discord/callback", async (req, res) => {
-    try {
-      const code = req.query.code;
+          response_type: "code",
 
-      if (!code) {
-        return res.status(400).send("Missing Discord authorization code.");
-      }
+          scope:
+            "identify guilds"
+        });
 
-      const body = new URLSearchParams({
-        client_id: config.clientId,
-        client_secret: config.clientSecret,
-        grant_type: "authorization_code",
-        code,
-        redirect_uri: config.redirectUri
-      });
-
-      const tokenResponse = await fetch(
-        "https://discord.com/api/oauth2/token",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/x-www-form-urlencoded"
-          },
-          body: body.toString()
-        }
+      res.redirect(
+        `https://discord.com/oauth2/authorize?${params}`
       );
+    }
+  );
 
-      const token = await tokenResponse.json();
 
-      if (!token.access_token) {
-        console.error("[dashboard] Discord token error:", token);
+  /* =========================
+     DISCORD CALLBACK
+  ========================= */
 
-        return res
-          .status(500)
-          .send("Discord login failed: token exchange failed.");
-      }
+  app.get(
+    "/auth/discord/callback",
+    async (req, res) => {
+      try {
+        const code =
+          req.query.code;
 
-      // =========================
-      // GET DISCORD USER
-      // =========================
+        if (!code) {
+          return res
+            .status(400)
+            .send(
+              "Missing Discord authorization code."
+            );
+        }
 
-      const userResponse = await fetch(
-        "https://discord.com/api/users/@me",
-        {
-          headers: {
-            Authorization: `Bearer ${token.access_token}`
+        const body =
+          new URLSearchParams({
+            client_id:
+              config.clientId,
+
+            client_secret:
+              config.clientSecret,
+
+            grant_type:
+              "authorization_code",
+
+            code,
+
+            redirect_uri:
+              config.redirectUri
+          });
+
+        const tokenResponse =
+          await fetch(
+            "https://discord.com/api/oauth2/token",
+            {
+              method: "POST",
+
+              headers: {
+                "Content-Type":
+                  "application/x-www-form-urlencoded"
+              },
+
+              body:
+                body.toString()
+            }
+          );
+
+        const token =
+          await tokenResponse.json();
+
+        if (!token.access_token) {
+          console.error(
+            "[dashboard] OAuth token error:",
+            token
+          );
+
+          return res
+            .status(500)
+            .send(
+              "Discord login failed."
+            );
+        }
+
+
+        /* =====================
+           USER
+        ===================== */
+
+        const userResponse =
+          await fetch(
+            "https://discord.com/api/users/@me",
+            {
+              headers: {
+                Authorization:
+                  `Bearer ${token.access_token}`
+              }
+            }
+          );
+
+        if (!userResponse.ok) {
+          throw new Error(
+            "Could not retrieve Discord user."
+          );
+        }
+
+        const user =
+          await userResponse.json();
+
+
+        /* =====================
+           GUILDS
+        ===================== */
+
+        const guildResponse =
+          await fetch(
+            "https://discord.com/api/users/@me/guilds",
+            {
+              headers: {
+                Authorization:
+                  `Bearer ${token.access_token}`
+              }
+            }
+          );
+
+        if (!guildResponse.ok) {
+          throw new Error(
+            "Could not retrieve Discord servers."
+          );
+        }
+
+        const guilds =
+          await guildResponse.json();
+
+
+        /* =====================
+           SESSION
+        ===================== */
+
+        req.session.user = {
+          id: user.id,
+
+          username:
+            user.username,
+
+          global_name:
+            user.global_name,
+
+          avatar:
+            user.avatar,
+
+          discriminator:
+            user.discriminator,
+
+          guilds
+        };
+
+
+        req.session.save(
+          error => {
+            if (error) {
+              console.error(
+                "[dashboard] Session save error:",
+                error
+              );
+
+              return res
+                .status(500)
+                .send(
+                  "Could not save login session."
+                );
+            }
+
+            console.log(
+              `[dashboard] Logged in: ${user.username}`
+            );
+
+            res.redirect("/");
           }
-        }
-      );
-
-      if (!userResponse.ok) {
-        throw new Error("Could not fetch Discord user.");
-      }
-
-      const user = await userResponse.json();
-
-      // =========================
-      // GET USER GUILDS
-      // =========================
-
-      const guildResponse = await fetch(
-        "https://discord.com/api/users/@me/guilds",
-        {
-          headers: {
-            Authorization: `Bearer ${token.access_token}`
-          }
-        }
-      );
-
-      if (!guildResponse.ok) {
-        throw new Error("Could not fetch Discord servers.");
-      }
-
-      const guilds = await guildResponse.json();
-
-      // =========================
-      // SAVE SESSION
-      // =========================
-
-      req.session.user = {
-        id: user.id,
-        username: user.username,
-        global_name: user.global_name,
-        avatar: user.avatar,
-        discriminator: user.discriminator,
-        guilds
-      };
-
-      req.session.save(error => {
-        if (error) {
-          console.error("[dashboard] Session save error:", error);
-          return res.status(500).send("Could not save login session.");
-        }
-
-        console.log(
-          `[dashboard] Logged in: ${user.username}`
         );
 
-        res.redirect("/");
-      });
-    } catch (error) {
-      console.error("[dashboard] OAuth error:", error);
+      } catch (error) {
+        console.error(
+          "[dashboard] OAuth error:",
+          error
+        );
 
-      res.status(500).send("Discord login failed.");
+        res
+          .status(500)
+          .send(
+            "Discord login failed."
+          );
+      }
     }
-  });
+  );
 
-  // =========================
-  // CURRENT USER
-  // =========================
 
-  app.get("/api/me", requireAuth, (req, res) => {
-    const sessionGuilds = Array.isArray(req.session.user.guilds)
-      ? req.session.user.guilds
-      : [];
+  /* =========================
+     CURRENT USER
+  ========================= */
 
-    const guilds = sessionGuilds.filter(guild =>
-      client.guilds.cache.has(guild.id)
-    );
+  app.get(
+    "/api/me",
+    requireAuth,
+    (req, res) => {
 
-    res.json({
-      user: {
-        id: req.session.user.id,
-        username: req.session.user.username,
-        global_name: req.session.user.global_name,
-        avatar: req.session.user.avatar,
-        discriminator: req.session.user.discriminator
-      },
-      guilds
-    });
-  });
+      const sessionGuilds =
+        Array.isArray(
+          req.session.user.guilds
+        )
+          ? req.session.user.guilds
+          : [];
 
-  // =========================
-  // SERVER INFO
-  // =========================
+      const guilds =
+        sessionGuilds.filter(
+          guild =>
+            client.guilds.cache.has(
+              guild.id
+            )
+        );
 
-  app.get("/api/guilds/:guildId", requireAuth, (req, res) => {
-    const guild = client.guilds.cache.get(req.params.guildId);
-
-    if (!guild) {
-      return res.status(404).json({
-        error: "Guild not found."
-      });
-    }
-
-    res.json({
-      id: guild.id,
-      name: guild.name,
-      icon: guild.iconURL({
-        size: 128
-      })
-    });
-  });
-
-  // =========================
-  // PLAYER STATE
-  // =========================
-
-  app.get("/api/player/:guildId", requireAuth, (req, res) => {
-    try {
-      const player = music.get(req.params.guildId);
-
-      res.json(player.state());
-    } catch {
       res.json({
-        guildId: req.params.guildId,
-        connected: false,
-        current: null,
-        queue: [],
-        volume: 100,
-        loop: "off"
+        user: {
+          id:
+            req.session.user.id,
+
+          username:
+            req.session.user.username,
+
+          global_name:
+            req.session.user.global_name,
+
+          avatar:
+            req.session.user.avatar,
+
+          discriminator:
+            req.session.user.discriminator
+        },
+
+        guilds
       });
     }
-  });
+  );
 
-  // =========================
-  // PLAYER ACTIONS
-  // =========================
+
+  /* =========================
+     GUILD INFO
+  ========================= */
+
+  app.get(
+    "/api/guilds/:guildId",
+    requireAuth,
+    (req, res) => {
+
+      const guild =
+        client.guilds.cache.get(
+          req.params.guildId
+        );
+
+      if (!guild) {
+        return res.status(404).json({
+          error:
+            "Guild not found."
+        });
+      }
+
+      res.json({
+        id: guild.id,
+
+        name: guild.name,
+
+        icon:
+          guild.iconURL({
+            size: 128
+          })
+      });
+    }
+  );
+
+
+  /* =========================
+     PLAYER STATE
+  ========================= */
+
+  app.get(
+    "/api/player/:guildId",
+    requireAuth,
+    (req, res) => {
+
+      try {
+        const player =
+          music.get(
+            req.params.guildId
+          );
+
+        res.json(
+          player.state()
+        );
+
+      } catch {
+        res.json({
+          guildId:
+            req.params.guildId,
+
+          connected: false,
+
+          current: null,
+
+          queue: [],
+
+          volume: 100,
+
+          loop: "off",
+
+          position: 0,
+
+          paused: false
+        });
+      }
+    }
+  );
+
+
+  /* =========================
+     PLAYER ACTION
+  ========================= */
 
   app.post(
     "/api/player/:guildId/action",
     requireAuth,
     async (req, res) => {
-      const guildId = req.params.guildId;
-      const action = req.body?.action;
 
-      const player = music.get(guildId);
+      const guildId =
+        req.params.guildId;
+
+      const action =
+        req.body?.action;
+
+      const player =
+        music.get(guildId);
 
       try {
+
         if (action === "pause") {
           await player.pause();
         }
@@ -272,14 +437,21 @@ export function startDashboard(client, music, port) {
         }
 
         else if (action === "shuffle") {
+
           for (
-            let i = player.queue.length - 1;
+            let i =
+              player.queue.length - 1;
+
             i > 0;
+
             i--
           ) {
-            const j = Math.floor(
-              Math.random() * (i + 1)
-            );
+
+            const j =
+              Math.floor(
+                Math.random() *
+                (i + 1)
+              );
 
             [
               player.queue[i],
@@ -289,10 +461,16 @@ export function startDashboard(client, music, port) {
               player.queue[i]
             ];
           }
+
+          player.emitUpdate();
         }
 
         else if (action === "volume") {
-          const value = Number(req.body.value);
+
+          const value =
+            Number(
+              req.body.value
+            );
 
           if (
             !Number.isFinite(value) ||
@@ -300,15 +478,20 @@ export function startDashboard(client, music, port) {
             value > 100
           ) {
             return res.status(400).json({
-              error: "Volume must be between 0 and 100."
+              error:
+                "Volume must be between 0 and 100."
             });
           }
 
-          await player.setVolume(value);
+          await player.setVolume(
+            value
+          );
         }
 
         else if (action === "loop") {
-          const value = req.body.value;
+
+          const value =
+            req.body.value;
 
           if (
             value !== "off" &&
@@ -316,20 +499,26 @@ export function startDashboard(client, music, port) {
             value !== "queue"
           ) {
             return res.status(400).json({
-              error: "Invalid loop mode."
+              error:
+                "Invalid loop mode."
             });
           }
 
-          player.loop = value;
+          player.loop =
+            value;
+
+          player.emitUpdate();
         }
 
         else {
           return res.status(400).json({
-            error: "Unknown action."
+            error:
+              "Unknown action."
           });
         }
 
-        const state = player.state();
+        const state =
+          player.state();
 
         io.to(guildId).emit(
           "player:update",
@@ -337,9 +526,11 @@ export function startDashboard(client, music, port) {
         );
 
         res.json(state);
+
       } catch (error) {
+
         console.error(
-          `[dashboard] Player action error:`,
+          "[dashboard] Player action error:",
           error
         );
 
@@ -352,74 +543,108 @@ export function startDashboard(client, music, port) {
     }
   );
 
-  // =========================
-  // LOGOUT
-  // =========================
 
-  app.get("/logout", (req, res) => {
-    req.session.destroy(error => {
-      if (error) {
-        console.error(
-          "[dashboard] Logout error:",
-          error
-        );
-      }
+  /* =========================
+     LOGOUT
+  ========================= */
 
-      res.clearCookie("connect.sid");
+  app.get(
+    "/logout",
+    (req, res) => {
 
-      res.redirect("/");
-    });
-  });
+      req.session.destroy(
+        error => {
 
-  // =========================
-  // STATIC DASHBOARD
-  // =========================
+          if (error) {
+            console.error(
+              "[dashboard] Logout error:",
+              error
+            );
+          }
+
+          res.clearCookie(
+            "connect.sid"
+          );
+
+          res.redirect("/");
+        }
+      );
+    }
+  );
+
+
+  /* =========================
+     STATIC FILES
+  ========================= */
 
   app.use(
     express.static(
-      path.join(__dirname, "public")
+      path.join(
+        __dirname,
+        "public"
+      )
     )
   );
 
-  // =========================
-  // SOCKET.IO
-  // =========================
 
-  io.on("connection", socket => {
-    console.log(
-      `[dashboard] Socket connected: ${socket.id}`
-    );
+  /* =========================
+     SOCKET.IO
+  ========================= */
 
-    socket.on("guild:watch", guildId => {
-      if (!guildId) return;
-
-      socket.join(guildId);
+  io.on(
+    "connection",
+    socket => {
 
       console.log(
-        `[dashboard] Socket ${socket.id} watching guild ${guildId}`
+        `[dashboard] Socket connected: ${socket.id}`
       );
-    });
 
-    socket.on("disconnect", () => {
-      console.log(
-        `[dashboard] Socket disconnected: ${socket.id}`
+      socket.on(
+        "guild:watch",
+        guildId => {
+
+          if (!guildId) {
+            return;
+          }
+
+          socket.join(
+            guildId
+          );
+
+          console.log(
+            `[dashboard] ${socket.id} watching ${guildId}`
+          );
+        }
       );
-    });
-  });
 
-  // =========================
-  // START SERVER
-  // =========================
+      socket.on(
+        "disconnect",
+        () => {
+
+          console.log(
+            `[dashboard] Socket disconnected: ${socket.id}`
+          );
+        }
+      );
+    }
+  );
+
+
+  /* =========================
+     START
+  ========================= */
 
   httpServer.listen(
     port,
     "0.0.0.0",
     () => {
+
       console.log(
         `[dashboard] Listening on port ${port}`
       );
     }
   );
+
 
   return {
     app,
